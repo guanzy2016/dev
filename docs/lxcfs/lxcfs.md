@@ -84,7 +84,11 @@ systemctl daemon-reload && systemctl start lxcfs
 git clone https://github.com/denverdino/lxcfs-initializer.git
 ```
 
-这个项目除了以 daemonset 方式运行 lxcfs，还提供了利用 k8s initializer 功能自动挂载 volume 给 pod，这里只介绍 daemonset 方式安装 lxcfs。
+这个项目除了以 daemonset 方式运行 lxcfs，还提供了利用 k8s initializer 功能自动挂载 volume 给 pod，这里只介绍 daemonset 方式安装 lxcfs, 主机侧需先安装 fuse-libs：
+
+```
+yum install fuse-libs -y
+```
 
 ```
 cd lxcfs-initializer/
@@ -198,7 +202,15 @@ spec:
           type: DirectoryOrCreate
 ``` 
 
-将 host 上的 /usr/local 挂给容器，将容器内的 /usr/local/bin/lxcfs 覆盖掉了。
+将 host 上的 
+
+/usr/local
+
+/sys/fs/cgroup
+
+/var/lib/lxcfs 
+
+挂给容器，将容器内的 /usr/local/bin/lxcfs 覆盖掉了。
 
 解决方案：
 
@@ -241,6 +253,8 @@ daemonset.apps/lxcfs created
 NAME          READY   STATUS    RESTARTS   AGE
 lxcfs-gkwvr   1/1     Running   0          3s
 ```
+
+注：lxcfs-initializer 最新合入使用 3.0.4 版本, 解决了主机需要安装 lxcfs 的问题 [Update to lxcfs 3.0.4](https://github.com/denverdino/lxcfs-initializer/commit/497b859323c190c32eb1339fd66066ccd93133ba)
 
 ## 创建容器验证 lxcfs
 
