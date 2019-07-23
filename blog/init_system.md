@@ -28,3 +28,25 @@ systemd 是一个 Linux 系统基础组件的集合，提供了一个系统和�
 ## dumb-init
 
 [dumb-init](https://github.com/Yelp/dumb-init) 是 Yelp 开发的，主要应用于容器平台的精简初始化系统，主要用于解决上述容器环境缺少初始化进程管理业务程序的问题，但 dumb-init 作为精简初始化系统相较于 sbin-init 和 systemd，系统初始化的功能还不完备，如 dumb-init 无法启动 dbus，dumb-init 作为初始化进程，容器内的 systemd 也无法使用。
+
+## k8s pause container
+
+k8s 以 pod 为最小管理单元，将一组共享命名空间的容器放在 pod 里，其中 pause 容器是 pod 中其他容器的父容器，其他容器以子进程的方式加入到 pause 命名空间以共享，pause 中运行的代码解决了前文描述的两个问题，传递进程信号，接管孤儿进程，避免出现僵尸进程。
+
+```
+[root@gzy-node ~]# docker ps |grep demo
+4c063a17141a        07032c0709a4           "sleep 1000"             About an hour ago   Up About an hour                        k8s_richcontainer-demo_demo_default_8e916f69-ad29-11e9-ab06-525400671df1_0
+f51202a38188        k8s.gcr.io/pause:3.1   "/pause"                 About an hour ago   Up About an hour                        k8s_POD_demo_default_8e916f69-ad29-11e9-ab06-525400671df1_0
+```
+
+```
+[root@gzy-node ~]# docker inspect 4c063a17141a |grep f51202a381
+        "ResolvConfPath": "/var/lib/docker/containers/f51202a3818897cee8b7303925a0eccdd5e664eed1f61733aa989c48e228a161/resolv.conf",
+        "HostnamePath": "/var/lib/docker/containers/f51202a3818897cee8b7303925a0eccdd5e664eed1f61733aa989c48e228a161/hostname",
+            "NetworkMode": "container:f51202a3818897cee8b7303925a0eccdd5e664eed1f61733aa989c48e228a161",
+            "IpcMode": "container:f51202a3818897cee8b7303925a0eccdd5e664eed1f61733aa989c48e228a161",
+                "io.kubernetes.sandbox.id": "f51202a3818897cee8b7303925a0eccdd5e664eed1f61733aa989c48e228a161",
+```
+
+可以看到，主要运行业务程序的容器共享 pause 容器的网络命名空间和进程命名空间。
+[pause container](http://dockone.io/article/2785)
