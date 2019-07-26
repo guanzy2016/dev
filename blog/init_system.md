@@ -33,20 +33,62 @@ systemd 是一个 Linux 系统基础组件的集合，提供了一个系统和�
 
 k8s 以 pod 为最小管理单元，将一组共享命名空间的容器放在 pod 里，其中 pause 容器是 pod 中其他容器的父容器，其他容器以子进程的方式加入到 pause 命名空间以共享，pause 中运行的代码解决了前文描述的两个问题，传递进程信号，接管孤儿进程，避免出现僵尸进程。
 
+进程命名空间共享 PodShareProcessNamespace 在 beta 版本中默认开启，pod yaml 中需要配置：
+[shareProcessNamespace](https://v1-12.docs.kubernetes.io/zh/docs/tasks/configure-pod-container/share-process-namespace/)：
+
+```
+apiVersion: v1
+kind: Pod
+metadata:
+ name: demo4
+ annotations:
+    "beyond-ac.admission.kubernetes.io/include-lxcfs" : "true"
+ labels:
+  name: richcontainer
+spec:
+ shareProcessNamespace: true
+ containers:
+ - name: richcontainer-demo
+   image: centos-rich:1.0
+   command: ["sleep"]
+   args: ["1000"]
+   securityContext:
+      privileged: true
+```
+
+创建 pod 后查看容器：
+
 ```
 [root@gzy-node ~]# docker ps |grep demo
-4c063a17141a        07032c0709a4           "sleep 1000"             About an hour ago   Up About an hour                        k8s_richcontainer-demo_demo_default_8e916f69-ad29-11e9-ab06-525400671df1_0
-f51202a38188        k8s.gcr.io/pause:3.1   "/pause"                 About an hour ago   Up About an hour                        k8s_POD_demo_default_8e916f69-ad29-11e9-ab06-525400671df1_0
+0d62cffe6679        816fb7a0c95c           "sleep 1000"             15 minutes ago      Up 15 minutes                           k8s_richcontainer-demo_demo4_default_5d00ca16-af4c-11e9-ab06-525400671df1_0
+7cd4472f2d94        k8s.gcr.io/pause:3.1   "/pause"                 15 minutes ago      Up 15 minutes                           k8s_POD_demo4_default_5d00ca16-af4c-11e9-ab06-525400671df1_0
+[root@gzy-node ~]#
+[root@gzy-node ~]# docker inspect 0d62cffe6679 |grep 7cd4472f2d94
+        "ResolvConfPath": "/var/lib/docker/containers/7cd4472f2d94e549d9802838fece28434a1b26a4e9939ce7d97fc8cb84ac23b2/resolv.conf",
+        "HostnamePath": "/var/lib/docker/containers/7cd4472f2d94e549d9802838fece28434a1b26a4e9939ce7d97fc8cb84ac23b2/hostname",
+            "NetworkMode": "container:7cd4472f2d94e549d9802838fece28434a1b26a4e9939ce7d97fc8cb84ac23b2",
+            "IpcMode": "container:7cd4472f2d94e549d9802838fece28434a1b26a4e9939ce7d97fc8cb84ac23b2",
+            "PidMode": "container:7cd4472f2d94e549d9802838fece28434a1b26a4e9939ce7d97fc8cb84ac23b2",
+                "io.kubernetes.sandbox.id": "7cd4472f2d94e549d9802838fece28434a1b26a4e9939ce7d97fc8cb84ac23b2",
 ```
 
+可以看到，主要运行业务程序的容器共享 pause 容器的:
+
+- 网络命名空间 Network
+- 进程间通信命名空间 Ipc
+- 配置生效的进程命名空间 Pid
+
+此时 demo 主容器以子进程的方式被加入到 pause 容器命名空间中
+[pause container](http://dockone.io/article/2785), 容器中的 1 号进程为 pause，转发进程信号，接管孤儿进程由 pause 容器负责：
+
 ```
-[root@gzy-node ~]# docker inspect 4c063a17141a |grep f51202a381
-        "ResolvConfPath": "/var/lib/docker/containers/f51202a3818897cee8b7303925a0eccdd5e664eed1f61733aa989c48e228a161/resolv.conf",
-        "HostnamePath": "/var/lib/docker/containers/f51202a3818897cee8b7303925a0eccdd5e664eed1f61733aa989c48e228a161/hostname",
-            "NetworkMode": "container:f51202a3818897cee8b7303925a0eccdd5e664eed1f61733aa989c48e228a161",
-            "IpcMode": "container:f51202a3818897cee8b7303925a0eccdd5e664eed1f61733aa989c48e228a161",
-                "io.kubernetes.sandbox.id": "f51202a3818897cee8b7303925a0eccdd5e664eed1f61733aa989c48e228a161",
+[root@gzy-vm kubevirt_file]# kubectl exec -it demo4 bash
+[root@demo4 /]# ps -elf
+F S UID        PID  PPID  C PRI  NI ADDR SZ WCHAN  STIME TTY          TIME CMD
+4 S root         1     0  0  80   0 -   253 sys_pa 02:23 ?        00:00:00 /pause
+4 S root         7     0  0  80   0 -  1090 hrtime 02:23 ?        00:00:00 sleep 1000
+4 S root        13     0  0  80   0 -  2955 do_wai 02:23 pts/0    00:00:00 bash
+4 R root        28    13  0  80   0 - 12935 -      02:24 pts/0    00:00:00 ps -elf
 ```
 
-可以看到，主要运行业务程序的容器共享 pause 容器的网络命名空间和进程命名空间。
-[pause container](http://dockone.io/article/2785)
+所以，从 k8s pod 的角度， dumb-init 功能可完全被 pause 容器实现，不需要额外再为容器配置 dumb-init 初始化进程。
